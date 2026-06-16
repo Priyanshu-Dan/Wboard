@@ -21,6 +21,7 @@ import { v4 as uuidv4 } from "uuid";
 import { FloatingToolbar } from "@/components/floating-toolbar";
 import { SlideDock } from "@/components/slide-dock";
 import { useWhiteboardStore } from "@/store/use-whiteboard-store";
+import { useSocket } from "@/components/socket-provider";
 import type { Tool, WhiteboardShape } from "@/types/whiteboard";
 
 type Point = {
@@ -95,14 +96,13 @@ function getMarginGuideColor(appTheme: string, collegeMode: boolean): string {
   if (collegeMode) {
     return "#dc2626"; // Red for college margin
   }
-  // Subtle margins - theme aware
   if (appTheme === "midnight") {
-    return "rgba(100, 116, 139, 0.3)"; // slate-500 with opacity
+    return "rgba(100, 116, 139, 0.3)";
   }
   if (appTheme === "sunny") {
-    return "rgba(148, 163, 184, 0.3)"; // slate-400 with opacity
+    return "rgba(148, 163, 184, 0.3)";
   }
-  return "rgba(203, 213, 225, 0.4)"; // Classic light gray with opacity
+  return "rgba(203, 213, 225, 0.4)";
 }
 
 export default function Whiteboard() {
@@ -110,6 +110,8 @@ export default function Whiteboard() {
   const stageRef = useRef<KonvaStage | null>(null);
   const transformerRef = useRef<KonvaTransformer | null>(null);
   const shapeRefs = useRef<Record<string, KonvaNode | null>>({});
+  
+  const socket = useSocket();
 
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
@@ -126,24 +128,19 @@ export default function Whiteboard() {
   const activePageId = useWhiteboardStore((state) => state.activePageId);
   const activeTool = useWhiteboardStore((state) => state.activeTool);
   const selectedColor = useWhiteboardStore((state) => state.selectedColor);
-  const selectedStrokeWidth = useWhiteboardStore(
-    (state) => state.selectedStrokeWidth,
-  );
+  const selectedStrokeWidth = useWhiteboardStore((state) => state.selectedStrokeWidth);
   const colorPalette = useWhiteboardStore((state) => state.colorPalette);
-  const strokeWidthOptions = useWhiteboardStore(
-    (state) => state.strokeWidthOptions,
-  );
+  const strokeWidthOptions = useWhiteboardStore((state) => state.strokeWidthOptions);
   const isGridVisible = useWhiteboardStore((state) => state.isGridVisible);
   const appTheme = useWhiteboardStore((state) => state.appTheme);
   const showMargins = useWhiteboardStore((state) => state.showMargins);
   const collegeMarginMode = useWhiteboardStore((state) => state.collegeMarginMode);
   const pastCount = useWhiteboardStore((state) => state.past.length);
   const futureCount = useWhiteboardStore((state) => state.future.length);
+  
   const setActiveTool = useWhiteboardStore((state) => state.setActiveTool);
   const setSelectedColor = useWhiteboardStore((state) => state.setSelectedColor);
-  const setSelectedStrokeWidth = useWhiteboardStore(
-    (state) => state.setSelectedStrokeWidth,
-  );
+  const setSelectedStrokeWidth = useWhiteboardStore((state) => state.setSelectedStrokeWidth);
   const toggleGrid = useWhiteboardStore((state) => state.toggleGrid);
   const createPage = useWhiteboardStore((state) => state.createPage);
   const deletePage = useWhiteboardStore((state) => state.deletePage);
@@ -156,8 +153,7 @@ export default function Whiteboard() {
   const undo = useWhiteboardStore((state) => state.undo);
   const redo = useWhiteboardStore((state) => state.redo);
 
-  const currentPage =
-    pages.find((page) => page.id === activePageId) ?? pages[0] ?? null;
+  const currentPage = pages.find((page) => page.id === activePageId) ?? pages[0] ?? null;
   const shapes = useMemo(() => currentPage?.content.shapes ?? [], [currentPage?.content.shapes]);
   const activeSelectedShapeId = shapes.some((shape) => shape.id === selectedShapeId)
     ? selectedShapeId
@@ -172,6 +168,34 @@ export default function Whiteboard() {
     [stageSize, zoom],
   );
 
+  // --- SOCKET EVENT LISTENERS ---
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on("shape:add", (shape: WhiteboardShape) => {
+      addShape(shape, { trackHistory: false });
+    });
+
+    socket.on("shape:update", ({ id, updates }: { id: string, updates: Partial<WhiteboardShape> }) => {
+      updateShape(id, updates, { trackHistory: false });
+    });
+
+    socket.on("shape:delete", (id: string) => {
+      removeShape(id, { trackHistory: false });
+    });
+
+    socket.on("shape:delete_multiple", (ids: string[]) => {
+      removeShapes(ids, { trackHistory: false });
+    });
+
+    return () => {
+      socket.off("shape:add");
+      socket.off("shape:update");
+      socket.off("shape:delete");
+      socket.off("shape:delete_multiple");
+    };
+  }, [socket, addShape, updateShape, removeShape, removeShapes]);
+
   function resetInteractionState() {
     setSelectedShapeId(null);
     setDraftShapeId(null);
@@ -183,10 +207,7 @@ export default function Whiteboard() {
 
   useEffect(() => {
     const container = containerRef.current;
-
-    if (!container) {
-      return;
-    }
+    if (!container) return;
 
     const syncStageSize = () => {
       setStageSize({
@@ -196,7 +217,6 @@ export default function Whiteboard() {
     };
 
     syncStageSize();
-
     const observer = new ResizeObserver(syncStageSize);
     observer.observe(container);
 
@@ -204,15 +224,10 @@ export default function Whiteboard() {
   }, []);
 
   useEffect(() => {
-    if (!transformerRef.current || !activeSelectedShapeId) {
-      return;
-    }
+    if (!transformerRef.current || !activeSelectedShapeId) return;
 
     const selectedNode = shapeRefs.current[activeSelectedShapeId];
-
-    if (!selectedNode) {
-      return;
-    }
+    if (!selectedNode) return;
 
     transformerRef.current.nodes([selectedNode]);
     transformerRef.current.getLayer()?.batchDraw();
@@ -255,7 +270,6 @@ export default function Whiteboard() {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       const target = event.target;
-
       if (
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
@@ -273,6 +287,7 @@ export default function Whiteboard() {
       if (isUndo) {
         event.preventDefault();
         undo();
+        // Note: undo/redo sync to socket requires diffing state, handled later
       }
 
       if (isRedo) {
@@ -282,20 +297,13 @@ export default function Whiteboard() {
     }
 
     window.addEventListener("keydown", handleKeyDown);
-
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [redo, undo]);
 
-  function getPointerPosition(
-    event: KonvaEventObject<MouseEvent | TouchEvent>,
-  ): Point | null {
+  function getPointerPosition(event: KonvaEventObject<MouseEvent | TouchEvent>): Point | null {
     const stage = event.target.getStage();
     const position = stage?.getPointerPosition();
-
-    if (!position) {
-      return null;
-    }
-
+    if (!position) return null;
     return { x: position.x, y: position.y };
   }
 
@@ -311,9 +319,7 @@ export default function Whiteboard() {
   }
 
   function buildShape(tool: Tool, point: Point): WhiteboardShape | null {
-    if (tool === "select" || tool === "eraser" || tool === "area-eraser") {
-      return null;
-    }
+    if (tool === "select" || tool === "eraser" || tool === "area-eraser") return null;
 
     if (tool === "text") {
       return {
@@ -349,12 +355,11 @@ export default function Whiteboard() {
 
   function addTextShape(point: Point) {
     const nextShape = buildShape("text", point);
-
-    if (!nextShape) {
-      return;
-    }
+    if (!nextShape) return;
 
     addShape(nextShape);
+    socket?.emit("shape:add", nextShape);
+    
     setSelectedShapeId(nextShape.id);
     setEditingTextId(nextShape.id);
     setTextValue("");
@@ -374,12 +379,11 @@ export default function Whiteboard() {
     }
 
     const nextShape = buildShape(activeTool, point);
-
-    if (!nextShape) {
-      return;
-    }
+    if (!nextShape) return;
 
     addShape(nextShape);
+    socket?.emit("shape:add", nextShape);
+    
     setSelectedShapeId(nextShape.id);
 
     if (nextShape.type !== "text") {
@@ -397,6 +401,7 @@ export default function Whiteboard() {
 
       if (removedIds.length > 0) {
         removeShapes(removedIds);
+        socket?.emit("shape:delete_multiple", removedIds);
       }
     }
 
@@ -405,6 +410,8 @@ export default function Whiteboard() {
 
       if (draftShape && !hasVisibleGeometry(draftShape)) {
         removeShape(draftShapeId, { trackHistory: false });
+        socket?.emit("shape:delete", draftShapeId);
+        
         if (activeSelectedShapeId === draftShapeId) {
           setSelectedShapeId(null);
         }
@@ -428,30 +435,19 @@ export default function Whiteboard() {
     }
 
     const stagePoint = getPointerPosition(event);
-
-    if (!stagePoint) {
-      return;
-    }
+    if (!stagePoint) return;
 
     const slidePoint = toSlidePoint(stagePoint);
-
-    if (!isPointInSlide(slidePoint)) {
-      return;
-    }
+    if (!isPointInSlide(slidePoint)) return;
 
     startShape(slidePoint);
   }
 
   function handlePointerMove(event: KonvaEventObject<MouseEvent | TouchEvent>) {
-    if (!isDrawing || !draftOrigin) {
-      return;
-    }
+    if (!isDrawing || !draftOrigin) return;
 
     const stagePoint = getPointerPosition(event);
-
-    if (!stagePoint) {
-      return;
-    }
+    if (!stagePoint) return;
 
     const slidePoint = toSlidePoint(stagePoint);
 
@@ -465,67 +461,49 @@ export default function Whiteboard() {
       return;
     }
 
-    if (!draftShapeId) {
-      return;
-    }
+    if (!draftShapeId) return;
 
     const activeShape = shapes.find((shape) => shape.id === draftShapeId);
+    if (!activeShape) return;
 
-    if (!activeShape) {
-      return;
-    }
+    let updates: Partial<WhiteboardShape> = {};
 
     if (activeShape.type === "rectangle" || activeShape.type === "circle") {
-      updateShape(
-        draftShapeId,
-        {
-          x: Math.min(draftOrigin.x, slidePoint.x),
-          y: Math.min(draftOrigin.y, slidePoint.y),
-          width: Math.abs(slidePoint.x - draftOrigin.x),
-          height: Math.abs(slidePoint.y - draftOrigin.y),
-        },
-        { trackHistory: false },
-      );
-      return;
+      updates = {
+        x: Math.min(draftOrigin.x, slidePoint.x),
+        y: Math.min(draftOrigin.y, slidePoint.y),
+        width: Math.abs(slidePoint.x - draftOrigin.x),
+        height: Math.abs(slidePoint.y - draftOrigin.y),
+      };
+    } else if (activeShape.type === "line" || activeShape.type === "arrow") {
+      updates = {
+        width: Math.abs(slidePoint.x - draftOrigin.x),
+        height: Math.abs(slidePoint.y - draftOrigin.y),
+        points: [0, 0, slidePoint.x - draftOrigin.x, slidePoint.y - draftOrigin.y],
+      };
+    } else if (activeShape.type === "pencil") {
+      updates = {
+        width: Math.abs(slidePoint.x - draftOrigin.x),
+        height: Math.abs(slidePoint.y - draftOrigin.y),
+        points: [
+          ...(activeShape.points ?? [0, 0]),
+          slidePoint.x - draftOrigin.x,
+          slidePoint.y - draftOrigin.y,
+        ],
+      };
     }
 
-    if (activeShape.type === "line" || activeShape.type === "arrow") {
-      updateShape(
-        draftShapeId,
-        {
-          width: Math.abs(slidePoint.x - draftOrigin.x),
-          height: Math.abs(slidePoint.y - draftOrigin.y),
-          points: [0, 0, slidePoint.x - draftOrigin.x, slidePoint.y - draftOrigin.y],
-        },
-        { trackHistory: false },
-      );
-      return;
-    }
-
-    if (activeShape.type === "pencil") {
-      updateShape(
-        draftShapeId,
-        {
-          width: Math.abs(slidePoint.x - draftOrigin.x),
-          height: Math.abs(slidePoint.y - draftOrigin.y),
-          points: [
-            ...(activeShape.points ?? [0, 0]),
-            slidePoint.x - draftOrigin.x,
-            slidePoint.y - draftOrigin.y,
-          ],
-        },
-        { trackHistory: false },
-      );
-    }
+    updateShape(draftShapeId, updates, { trackHistory: false });
+    // Emit the update via Socket for real-time remote rendering
+    socket?.emit("shape:update", { id: draftShapeId, updates });
   }
 
-  function handleShapePointerDown(
-    shapeId: string,
-    type: WhiteboardShape["type"],
-  ) {
+  function handleShapePointerDown(shapeId: string, type: WhiteboardShape["type"]) {
     return (event: KonvaEventObject<MouseEvent | TouchEvent>) => {
       if (activeTool === "eraser") {
         removeShape(shapeId);
+        socket?.emit("shape:delete", shapeId);
+        
         if (activeSelectedShapeId === shapeId) {
           setSelectedShapeId(null);
         }
@@ -547,25 +525,21 @@ export default function Whiteboard() {
   function handleDragEnd(shape: WhiteboardShape) {
     return (event: KonvaEventObject<DragEvent>) => {
       const node = event.target;
-      updateShape(shape.id, {
-        x: node.x(),
-        y: node.y(),
-      });
+      const updates = { x: node.x(), y: node.y() };
+      
+      updateShape(shape.id, updates);
+      socket?.emit("shape:update", { id: shape.id, updates });
     };
   }
 
   function handleTransformEnd(shape: WhiteboardShape) {
     return () => {
       const transformer = transformerRef.current;
-      if (!transformer) {
-        return;
-      }
+      if (!transformer) return;
 
       const nodes = transformer.nodes();
       const node = nodes[0];
-      if (!node) {
-        return;
-      }
+      if (!node) return;
 
       const scaleX = node.scaleX();
       const scaleY = node.scaleY();
@@ -575,12 +549,15 @@ export default function Whiteboard() {
       node.scaleX(1);
       node.scaleY(1);
 
-      updateShape(shape.id, {
+      const updates = {
         x: node.x(),
         y: node.y(),
         width: newWidth,
         height: newHeight,
-      });
+      };
+
+      updateShape(shape.id, updates);
+      socket?.emit("shape:update", { id: shape.id, updates });
     };
   }
 
@@ -594,9 +571,7 @@ export default function Whiteboard() {
   }
 
   function handleEditText(shape: WhiteboardShape) {
-    if (activeTool !== "select") {
-      return;
-    }
+    if (activeTool !== "select") return;
 
     setSelectedShapeId(shape.id);
     setEditingTextId(shape.id);
@@ -604,9 +579,7 @@ export default function Whiteboard() {
   }
 
   function handleTextCommit() {
-    if (!editingTextId) {
-      return;
-    }
+    if (!editingTextId) return;
 
     const text = textValue.trim() || DEFAULT_TEXT;
     const shape = shapes.find((item) => item.id === editingTextId);
@@ -616,11 +589,15 @@ export default function Whiteboard() {
       return;
     }
 
-    updateShape(editingTextId, {
+    const updates = {
       text,
       width: Math.max(180, shape.width),
       height: Math.max(56, shape.height),
-    });
+    };
+
+    updateShape(editingTextId, updates);
+    socket?.emit("shape:update", { id: editingTextId, updates });
+    
     setEditingTextId(null);
   }
 
@@ -643,11 +620,7 @@ export default function Whiteboard() {
     <div className="relative h-screen w-screen overflow-hidden bg-[#f7f4ec]">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.95),_rgba(247,244,236,0.68)_42%,_rgba(233,227,214,0.92)_100%)]" />
 
-      <div
-        ref={containerRef}
-        className="relative h-full w-full"
-        style={{ ...gridBackground, cursor }}
-      >
+      <div ref={containerRef} className="relative h-full w-full" style={{ ...gridBackground, cursor }}>
         <SlideDock
           activePageId={activePageId}
           pages={pages}

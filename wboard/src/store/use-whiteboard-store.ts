@@ -11,6 +11,11 @@ import type {
   WhiteboardShape,
 } from "@/types/whiteboard";
 
+type User = {
+  id: string;
+  name: string;
+};
+
 type WhiteboardSnapshot = {
   pages: Page[];
   activePageId: string;
@@ -33,6 +38,13 @@ type WhiteboardState = WhiteboardSnapshot & {
   strokeWidthOptions: number[];
   past: WhiteboardSnapshot[];
   future: WhiteboardSnapshot[];
+  
+  // Phase 3 additions
+  roomId: string | null;
+  currentUser: User | null;
+  setRoomId: (id: string | null) => void;
+  setCurrentUser: (name: string, id: string) => void;
+  
   setActiveTool: (tool: Tool) => void;
   setSelectedColor: (color: string) => void;
   setSelectedStrokeWidth: (width: number) => void;
@@ -130,6 +142,10 @@ function updateSnapshot(
 const initialPage = createPageRecord("Page 1");
 
 export const useWhiteboardStore = create<WhiteboardState>((set) => ({
+  // Initialization of Phase 3 additions
+  roomId: null,
+  currentUser: null,
+  
   pages: [initialPage],
   activePageId: initialPage.id,
   activeTool: "select",
@@ -144,6 +160,11 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
   collegeMarginMode: false,
   past: [],
   future: [],
+  
+  // Setters for Phase 3
+  setRoomId: (id) => set({ roomId: id }),
+  setCurrentUser: (name, id) => set({ currentUser: { id, name } }),
+  
   setActiveTool: (tool) => set({ activeTool: tool }),
   setSelectedColor: (color) => set({ selectedColor: color }),
   setSelectedStrokeWidth: (width) => set({ selectedStrokeWidth: width }),
