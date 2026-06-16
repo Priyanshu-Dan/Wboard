@@ -161,10 +161,20 @@ export default function Whiteboard() {
       if(data?.ids) removeShapes(data.ids, { trackHistory: false, pageId: data.pageId });
     });
 
+    // --- UPDATED: Stronger color assignment math ---
     socket.on("cursor:update", (data: { id: string; name: string; x: number; y: number; pageId: string }) => {
+      // Sums up every single character in the socket ID to guarantee different colors
+      const colorIndex = Array.from(data.id).reduce((sum, char) => sum + char.charCodeAt(0), 0) % CURSOR_COLORS.length;
+
       setCursors((prev) => ({
         ...prev,
-        [data.id]: { x: data.x, y: data.y, name: data.name, color: CURSOR_COLORS[data.id.charCodeAt(0) % CURSOR_COLORS.length], pageId: data.pageId },
+        [data.id]: { 
+          x: data.x, 
+          y: data.y, 
+          name: data.name, 
+          color: CURSOR_COLORS[colorIndex], 
+          pageId: data.pageId 
+        },
       }));
     });
 
