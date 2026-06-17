@@ -39,6 +39,9 @@ io.on('connection', (socket) => {
     io.to(targetSocketId).emit('room-state', pages);
   });
 
+  //------------- Chat System ---------------
+  socket.on('chat:message', (message) => broadcastToRoom('chat:message', message));
+
   const broadcastToRoom = (event, data) => {
     const rooms = Array.from(socket.rooms).filter(r => r !== socket.id);
     rooms.forEach(room => {
@@ -46,6 +49,11 @@ io.on('connection', (socket) => {
     });
   };
 
+  // --- PHASE 6: CHAT SYSTEM ---
+  socket.on('chat:message', (data) => {
+    console.log(`💬 [CHAT] ${data.senderName}: ${data.text}`);
+    broadcastToRoom('chat:message', data);
+  });
   // Shapes
   socket.on('shape:add', (data) => broadcastToRoom('shape:add', data));
   socket.on('shape:update', (data) => broadcastToRoom('shape:update', data));

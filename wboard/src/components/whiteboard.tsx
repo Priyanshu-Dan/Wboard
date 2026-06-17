@@ -17,7 +17,7 @@ import {
   Transformer,
 } from "react-konva";
 import { v4 as uuidv4 } from "uuid";
-
+import { ChatPanel } from "@/components/chat-panel";
 import { FloatingToolbar } from "@/components/floating-toolbar";
 import { SlideDock } from "@/components/slide-dock";
 import { useWhiteboardStore } from "@/store/use-whiteboard-store";
@@ -584,6 +584,8 @@ export default function Whiteboard() {
         />
 
         <FloatingToolbar activeTool={activeTool} selectedColor={selectedColor} selectedStrokeWidth={selectedStrokeWidth} colorPalette={colorPalette} strokeWidthOptions={strokeWidthOptions} canUndo={pastCount > 0} canRedo={futureCount > 0} currentZoom={zoom} onRedo={() => { resetInteractionState(); redo(); }} onPreviousSlide={() => { const next = pages[(currentPageIndex - 1 + pages.length) % pages.length]; setActivePage(next.id); resetInteractionState(); }} onNextSlide={() => { const next = pages[(currentPageIndex + 1) % pages.length]; setActivePage(next.id); resetInteractionState(); }} onZoomIn={() => setZoom((current) => clamp(current + ZOOM_STEP, MIN_ZOOM, MAX_ZOOM))} onZoomOut={() => setZoom((current) => clamp(current - ZOOM_STEP, MIN_ZOOM, MAX_ZOOM))} onSelectColor={setSelectedColor} onSelectStrokeWidth={setSelectedStrokeWidth} onToggleGrid={toggleGrid} onToolChange={(tool) => { setActiveTool(tool); if (tool !== "select") { setSelectedShapeId(null); } }} onUndo={() => { resetInteractionState(); undo(); }} />
+
+        <ChatPanel/> {/* Chat Panel */}
 
         <div className="pointer-events-none absolute right-5 top-5 z-20 rounded-full border border-slate-200/80 bg-white/88 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm backdrop-blur">
           {currentPage?.name ?? "Page"} | {shapes.length} element{shapes.length === 1 ? "" : "s"}
