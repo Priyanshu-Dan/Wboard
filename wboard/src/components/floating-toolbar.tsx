@@ -19,6 +19,7 @@ import {
   ZoomIn,
   ZoomOut,
   BookOpen,
+  Download, // <-- Added Download icon for export
 } from "lucide-react";
 
 import type { AppTheme, StrokeWidth, Tool } from "@/types/whiteboard";
@@ -168,11 +169,36 @@ export function FloatingToolbar({
     };
   };
 
+  // --- NEW: HTML5 Canvas Export Logic ---
+  const handleExportPNG = () => {
+    const canvas = document.querySelector('.konvajs-content canvas') as HTMLCanvasElement;
+    
+    if (!canvas) {
+      console.error("Could not find the whiteboard canvas to export.");
+      return;
+    }
+
+    const dataUrl = canvas.toDataURL("image/png");
+    const link = document.createElement("a");
+    
+    // Generates a clean filename like: wboard-export-2026-07-31.png
+    link.download = `wboard-export-${new Date().toISOString().split('T')[0]}.png`;
+    link.href = dataUrl;
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <aside
       ref={toolbarRef}
       className="fixed z-30 rounded-3xl border border-slate-200/80 bg-white/95 shadow-[0_20px_50px_rgba(15,23,42,0.16)] backdrop-blur"
       style={{ left: position.x, top: position.y, width: toolbarWidth }}
+      // --- NEW: Event shield stops clicks from passing through to the Konva canvas ---
+      onPointerDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
     >
       <div
         className="flex cursor-grab items-center justify-between gap-3 rounded-t-3xl border-b border-slate-200/80 bg-slate-50 px-3 py-2"
@@ -280,7 +306,8 @@ export function FloatingToolbar({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        {/* --- NEW: Changed to grid-cols-3 and added Export Button --- */}
+        <div className="grid grid-cols-3 gap-2">
           <button
             type="button"
             onClick={onUndo}
@@ -301,6 +328,16 @@ export function FloatingToolbar({
             title="Redo"
           >
             <ArrowRight className="h-4.5 w-4.5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportPNG}
+            className="flex h-11 items-center justify-center rounded-2xl border border-transparent bg-slate-100 text-slate-600 transition hover:bg-slate-200 hover:text-slate-900"
+            aria-label="Export as PNG"
+            title="Export as PNG"
+          >
+            <Download className="h-4.5 w-4.5" />
           </button>
         </div>
 
