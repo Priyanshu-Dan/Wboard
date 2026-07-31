@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import { useWhiteboardStore } from "@/store/use-whiteboard-store";
 import Whiteboard from "@/components/whiteboard";
+import { HostNotifications } from "@/components/host-notifications";
 
 export default function RoomPage() {
   const params = useParams();
@@ -12,24 +13,47 @@ export default function RoomPage() {
 
   const { currentUser, setCurrentUser, setRoomId } = useWhiteboardStore();
   const [nameInput, setNameInput] = useState("");
+  
+  // ADDED: Prevent UI flash while checking browser memory
+  const [isCheckingCache, setIsCheckingCache] = useState(true);
 
-  // Sync the URL room ID to the Zustand store
+  // Sync the URL room ID to the Zustand store & check for returning users
   useEffect(() => {
     setRoomId(roomId);
     
+    // ADDED: Check if they already joined this session previously
+    const savedName = sessionStorage.getItem("wboard_name");
+    const savedUuid = sessionStorage.getItem("wboard_uuid");
+
+    if (savedName && savedUuid) {
+      setCurrentUser(savedName, savedUuid);
+    }
+    
+    setIsCheckingCache(false);
+
     // Cleanup when leaving the room
     return () => setRoomId(null);
-  }, [roomId, setRoomId]);
+  }, [roomId, setRoomId, setCurrentUser]);
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (nameInput.trim()) {
+    const trimmedName = nameInput.trim();
+    if (trimmedName) {
+      const newUuid = uuidv4();
+      
+      // ADDED: Save their credentials to the browser so they survive network drops
+      sessionStorage.setItem("wboard_name", trimmedName);
+      sessionStorage.setItem("wboard_uuid", newUuid);
+
       // Assign them a unique session ID and save their display name
-      setCurrentUser(nameInput.trim(), uuidv4());
+      setCurrentUser(trimmedName, newUuid);
     }
   };
 
-  // If the user hasn't entered a name yet, show the Lobby screen
+  // ADDED: Wait for the cache check to finish before rendering anything
+  if (isCheckingCache) return null;
+
+  // If the user hasn't entered a name yet (and wasn't in cache), show the Lobby screen
   if (!currentUser) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
@@ -69,9 +93,11 @@ export default function RoomPage() {
     );
   }
 
-  
+  // The SocketProvider now wraps Whiteboard. Since we updated SocketProvider in Step 2,
+  // it will automatically ping the Render health endpoint before initializing the WebSocket!
   return (
     <SocketProvider>
+      <HostNotifications/>
       <Whiteboard />
     </SocketProvider>
   );

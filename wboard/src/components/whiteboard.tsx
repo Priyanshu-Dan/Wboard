@@ -83,7 +83,8 @@ export default function Whiteboard() {
   const lastCursorUpdate = useRef<number>(0);
   
   const socket = useSocket();
-
+  const roomId = typeof window !== "undefined" ? window.location.pathname.split('/').pop() : null; 
+  
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
   const [draftShapeId, setDraftShapeId] = useState<string | null>(null);
@@ -143,7 +144,7 @@ export default function Whiteboard() {
   );
 
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || !roomId) return;
 
     socket.on("shape:add", (data: any) => {
       if(data?.shape) addShape(data.shape, { trackHistory: false, pageId: data.pageId });
@@ -161,11 +162,8 @@ export default function Whiteboard() {
       if(data?.ids) removeShapes(data.ids, { trackHistory: false, pageId: data.pageId });
     });
 
-    // --- UPDATED: Stronger color assignment math ---
     socket.on("cursor:update", (data: { id: string; name: string; x: number; y: number; pageId: string }) => {
-      // Sums up every single character in the socket ID to guarantee different colors
       const colorIndex = Array.from(data.id).reduce((sum, char) => sum + char.charCodeAt(0), 0) % CURSOR_COLORS.length;
-
       setCursors((prev) => ({
         ...prev,
         [data.id]: { 
@@ -186,17 +184,45 @@ export default function Whiteboard() {
     socket.on("page:delete", (id: string) => deletePage(id));
     socket.on("page:rename", (data: { id: string; name: string }) => renamePage(data.id, data.name));
 
-    // --- CATCH-UP PROTOCOL LISTENERS ---
-    socket.on("room-state", (incomingPages: Page[]) => {
-      // We are the new user. Update our store with the existing room data.
-      useWhiteboardStore.getState().setPages(incomingPages);
+    // --- BULLETPROOF CATCH-UP PROTOCOL ---
+    socket.on("room-state", (payload: any) => {
+      console.log("📥 Received room-state from server:", payload);
+      
+      if (payload && payload.pages) {
+        // Direct state injection to prevent missing method crashes
+        useWhiteboardStore.setState({ 
+          pages: payload.pages,
+          activePageId: payload.activePageId || payload.pages[0]?.id
+        });
+
+        socket.emit("cursor:update", {
+          name: currentUser?.name || "Anonymous",
+          x: 0,
+          y: 0,
+          pageId: payload.activePageId || payload.pages[0]?.id,
+        });
+      } else if (Array.isArray(payload)) {
+        useWhiteboardStore.setState({ 
+          pages: payload,
+          activePageId: payload[0]?.id
+        });
+      }
     });
 
     socket.on("request-sync", ({ targetSocketId }: { targetSocketId: string }) => {
-      // We are the existing user. The server wants us to send our data to the new guy.
-      const currentPages = useWhiteboardStore.getState().pages;
-      socket.emit("send-sync", { targetSocketId, pages: currentPages });
+      console.log("📤 Server asked me to sync data to new user:", targetSocketId);
+      const state = useWhiteboardStore.getState();
+      
+      socket.emit("send-sync", { 
+        targetSocketId, 
+        pages: state.pages, 
+        activePageId: state.activePageId 
+      });
     });
+
+    // 🚀 CRITICAL TIMING FIX: Tell server we are ready ONLY AFTER listeners are up
+    console.log("✅ Canvas mounted. Telling server we are ready for data...");
+    socket.emit("client-ready", { roomId });
 
     return () => {
       socket.off("shape:add");
@@ -211,8 +237,26 @@ export default function Whiteboard() {
       socket.off("room-state");
       socket.off("request-sync");
     };
-  }, [socket, addShape, updateShape, removeShape, removeShapes, addPage, deletePage, renamePage]);
+  }, [socket, roomId, addShape, updateShape, removeShape, removeShapes, addPage, deletePage, renamePage, currentUser]);
 
+  // --- GARBAGE COLLECTOR / MEMORY BANK BACKUP ---
+  const isFirstRender = useRef(true);
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+
+    const hasDrawings = pages.some(page => 
+      page.pageType === "whiteboard" && page.content.shapes.length > 0
+    );
+
+    if (socket && roomId && hasDrawings) {
+      socket.emit('update-cache', { roomId, pages, activePageId });
+    }
+  }, [pages, activePageId, socket, roomId]);
+  
   function resetInteractionState() {
     setSelectedShapeId(null);
     setDraftShapeId(null);
@@ -245,7 +289,7 @@ export default function Whiteboard() {
   useEffect(() => {
     const shape = editingTextId ? shapes.find((item) => item.id === editingTextId) : null;
     if (!shape || !containerRef.current) {
-      setTextInputStyle({ display: "none" });
+      setTextInputStyle((prev) => prev.display === "none" ? prev : { display: "none" });
       return;
     }
 
@@ -484,6 +528,22 @@ export default function Whiteboard() {
 
   function handleDeletePage(pageId: string) {
     resetInteractionState();
+
+    // NEW: Protect the first page from being deleted
+    if (pages.length > 0 && pages[0].id === pageId) {
+      // Find all shape IDs on Page 1
+      const shapeIdsToClear = pages[0].content.shapes.map((shape) => shape.id);
+      
+      if (shapeIdsToClear.length > 0) {
+        // Clear them locally
+        removeShapes(shapeIdsToClear);
+        // Tell everyone else in the room to clear them too
+        socket?.emit("shape:delete_multiple", { pageId: pageId, ids: shapeIdsToClear });
+      }
+      return; // Stop here! Do NOT emit the page:delete event.
+    }
+
+    // If it's any other page (Page 2, 3, etc.), delete it normally
     deletePage(pageId);
     socket?.emit("page:delete", pageId);
   }
