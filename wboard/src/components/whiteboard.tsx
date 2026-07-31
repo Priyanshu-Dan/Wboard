@@ -92,6 +92,12 @@ export default function Whiteboard() {
   const [selectionBox, setSelectionBox] = useState<Rectangle | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [zoom, setZoom] = useState(0.8);
+  
+  // --- NEW: Manual Camera Panning State ---
+  const [panOffset, setPanOffset] = useState<Point>({ x: 0, y: 0 });
+  const isPanning = useRef(false);
+  const lastPanPoint = useRef<Point | null>(null);
+
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [textValue, setTextValue] = useState<string>("");
   const [textInputStyle, setTextInputStyle] = useState<CSSProperties>({ display: "none" });
@@ -135,12 +141,13 @@ export default function Whiteboard() {
   const activeSelectedShapeId = shapes.some((shape) => shape.id === selectedShapeId) ? selectedShapeId : null;
   const currentPageIndex = pages.findIndex((page) => page.id === activePageId);
 
+  // --- UPDATED: Combine center math with the manual panOffset ---
   const slidePosition = useMemo(
     () => ({
-      x: Math.max((stageSize.width - SLIDE_WIDTH * zoom) / 2, 24),
-      y: Math.max((stageSize.height - SLIDE_HEIGHT * zoom) / 2, 24),
+      x: Math.max((stageSize.width - SLIDE_WIDTH * zoom) / 2, 24) + panOffset.x,
+      y: Math.max((stageSize.height - SLIDE_HEIGHT * zoom) / 2, 24) + panOffset.y,
     }),
-    [stageSize, zoom],
+    [stageSize, zoom, panOffset],
   );
 
   useEffect(() => {
@@ -184,12 +191,8 @@ export default function Whiteboard() {
     socket.on("page:delete", (id: string) => deletePage(id));
     socket.on("page:rename", (data: { id: string; name: string }) => renamePage(data.id, data.name));
 
-    // --- BULLETPROOF CATCH-UP PROTOCOL ---
     socket.on("room-state", (payload: any) => {
-      console.log("📥 Received room-state from server:", payload);
-      
       if (payload && payload.pages) {
-        // Direct state injection to prevent missing method crashes
         useWhiteboardStore.setState({ 
           pages: payload.pages,
           activePageId: payload.activePageId || payload.pages[0]?.id
@@ -210,7 +213,6 @@ export default function Whiteboard() {
     });
 
     socket.on("request-sync", ({ targetSocketId }: { targetSocketId: string }) => {
-      console.log("📤 Server asked me to sync data to new user:", targetSocketId);
       const state = useWhiteboardStore.getState();
       
       socket.emit("send-sync", { 
@@ -220,8 +222,6 @@ export default function Whiteboard() {
       });
     });
 
-    // 🚀 CRITICAL TIMING FIX: Tell server we are ready ONLY AFTER listeners are up
-    console.log("✅ Canvas mounted. Telling server we are ready for data...");
     socket.emit("client-ready", { roomId });
 
     return () => {
@@ -239,7 +239,6 @@ export default function Whiteboard() {
     };
   }, [socket, roomId, addShape, updateShape, removeShape, removeShapes, addPage, deletePage, renamePage, currentUser]);
 
-  // --- GARBAGE COLLECTOR / MEMORY BANK BACKUP ---
   const isFirstRender = useRef(true);
 
   useEffect(() => {
@@ -338,7 +337,7 @@ export default function Whiteboard() {
   }
 
   function buildShape(tool: Tool, point: Point): WhiteboardShape | null {
-    if (tool === "select" || tool === "eraser" || tool === "area-eraser") return null;
+    if (tool === "select" || tool === "eraser" || tool === "area-eraser" || tool === "hand") return null;
     if (tool === "text") {
       return { id: uuidv4(), type: "text", x: point.x, y: point.y, width: 280, height: 80, stroke: selectedColor, strokeWidth: selectedStrokeWidth, text: "" };
     }
@@ -381,31 +380,14 @@ export default function Whiteboard() {
     }
   }
 
-  function finishDrawing() {
-    if (activeTool === "area-eraser" && selectionBox) {
-      const removedIds = shapes.filter((shape) => intersectsRectangle(selectionBox, shapeBounds(shape))).map((shape) => shape.id);
-      if (removedIds.length > 0) {
-        removeShapes(removedIds);
-        socket?.emit("shape:delete_multiple", { pageId: activePageId, ids: removedIds });
-      }
-    }
-
-    if (draftShapeId) {
-      const draftShape = shapes.find((shape) => shape.id === draftShapeId);
-      if (draftShape && !hasVisibleGeometry(draftShape)) {
-        removeShape(draftShapeId, { trackHistory: false });
-        socket?.emit("shape:delete", { pageId: activePageId, id: draftShapeId });
-        if (activeSelectedShapeId === draftShapeId) setSelectedShapeId(null);
-      }
-    }
-
-    setIsDrawing(false);
-    setDraftShapeId(null);
-    setDraftOrigin(null);
-    setSelectionBox(null);
-  }
-
+  // --- UPDATED: Start Pan ---
   function handlePointerDown(event: KonvaEventObject<MouseEvent | TouchEvent>) {
+    if (activeTool === "hand") {
+      isPanning.current = true;
+      lastPanPoint.current = getPointerPosition(event);
+      return;
+    }
+
     const clickedOnEmptyCanvas = event.target === event.target.getStage();
     if (activeTool === "select" || activeTool === "eraser") {
       if (clickedOnEmptyCanvas) setSelectedShapeId(null);
@@ -418,9 +400,20 @@ export default function Whiteboard() {
     startShape(slidePoint);
   }
 
+  // --- UPDATED: Calculate Drag Distance ---
   function handlePointerMove(event: KonvaEventObject<MouseEvent | TouchEvent>) {
     const stagePoint = getPointerPosition(event);
     if (!stagePoint) return;
+    
+    // Pan calculation
+    if (activeTool === "hand") {
+      if (isPanning.current && lastPanPoint.current) {
+        const dx = stagePoint.x - lastPanPoint.current.x;
+        const dy = stagePoint.y - lastPanPoint.current.y;
+        setPanOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+        lastPanPoint.current = stagePoint;
+      }
+    }
     
     const slidePoint = toSlidePoint(stagePoint);
 
@@ -434,6 +427,9 @@ export default function Whiteboard() {
       });
       lastCursorUpdate.current = now;
     }
+
+    // Stop drawing logic if panning
+    if (activeTool === "hand") return;
 
     if (!isDrawing || !draftOrigin) return;
 
@@ -472,8 +468,42 @@ export default function Whiteboard() {
     socket?.emit("shape:update", { pageId: activePageId, id: draftShapeId, updates });
   }
 
+  // --- UPDATED: Stop Pan ---
+  function finishDrawing() {
+    if (activeTool === "hand") {
+      isPanning.current = false;
+      lastPanPoint.current = null;
+      return;
+    }
+
+    if (activeTool === "area-eraser" && selectionBox) {
+      const removedIds = shapes.filter((shape) => intersectsRectangle(selectionBox, shapeBounds(shape))).map((shape) => shape.id);
+      if (removedIds.length > 0) {
+        removeShapes(removedIds);
+        socket?.emit("shape:delete_multiple", { pageId: activePageId, ids: removedIds });
+      }
+    }
+
+    if (draftShapeId) {
+      const draftShape = shapes.find((shape) => shape.id === draftShapeId);
+      if (draftShape && !hasVisibleGeometry(draftShape)) {
+        removeShape(draftShapeId, { trackHistory: false });
+        socket?.emit("shape:delete", { pageId: activePageId, id: draftShapeId });
+        if (activeSelectedShapeId === draftShapeId) setSelectedShapeId(null);
+      }
+    }
+
+    setIsDrawing(false);
+    setDraftShapeId(null);
+    setDraftOrigin(null);
+    setSelectionBox(null);
+  }
+
   function handleShapePointerDown(shapeId: string, type: WhiteboardShape["type"]) {
     return (event: KonvaEventObject<MouseEvent | TouchEvent>) => {
+      // Let hand tool bubble up so we can drag the canvas via shape clicks
+      if (activeTool === "hand") return; 
+
       if (activeTool === "eraser") {
         removeShape(shapeId);
         socket?.emit("shape:delete", { pageId: activePageId, id: shapeId });
@@ -529,21 +559,16 @@ export default function Whiteboard() {
   function handleDeletePage(pageId: string) {
     resetInteractionState();
 
-    // NEW: Protect the first page from being deleted
     if (pages.length > 0 && pages[0].id === pageId) {
-      // Find all shape IDs on Page 1
       const shapeIdsToClear = pages[0].content.shapes.map((shape) => shape.id);
       
       if (shapeIdsToClear.length > 0) {
-        // Clear them locally
         removeShapes(shapeIdsToClear);
-        // Tell everyone else in the room to clear them too
         socket?.emit("shape:delete_multiple", { pageId: pageId, ids: shapeIdsToClear });
       }
-      return; // Stop here! Do NOT emit the page:delete event.
+      return;
     }
 
-    // If it's any other page (Page 2, 3, etc.), delete it normally
     deletePage(pageId);
     socket?.emit("page:delete", pageId);
   }
@@ -567,8 +592,16 @@ export default function Whiteboard() {
     setEditingTextId(null);
   }
 
-  const cursor = activeTool === "select" ? "default" : activeTool === "eraser" ? "not-allowed" : "crosshair";
-  const gridBackground = isGridVisible ? { backgroundImage: "linear-gradient(rgba(148,163,184,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.12) 1px, transparent 1px)", backgroundSize: "32px 32px" } : undefined;
+  const cursor = activeTool === "hand" ? "grab" : activeTool === "select" ? "default" : activeTool === "eraser" ? "not-allowed" : "crosshair";
+  
+  // --- UPDATED: Background Pan Sync ---
+  const gridBackground = isGridVisible 
+    ? { 
+        backgroundImage: "linear-gradient(rgba(148,163,184,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.12) 1px, transparent 1px)", 
+        backgroundSize: "32px 32px",
+        backgroundPosition: `${panOffset.x}px ${panOffset.y}px`
+      } 
+    : undefined;
 
   const usersOnOtherPages = Object.entries(cursors).filter(([_, c]) => c.pageId && c.pageId !== activePageId);
 
@@ -645,14 +678,26 @@ export default function Whiteboard() {
 
         <FloatingToolbar activeTool={activeTool} selectedColor={selectedColor} selectedStrokeWidth={selectedStrokeWidth} colorPalette={colorPalette} strokeWidthOptions={strokeWidthOptions} canUndo={pastCount > 0} canRedo={futureCount > 0} currentZoom={zoom} onRedo={() => { resetInteractionState(); redo(); }} onPreviousSlide={() => { const next = pages[(currentPageIndex - 1 + pages.length) % pages.length]; setActivePage(next.id); resetInteractionState(); }} onNextSlide={() => { const next = pages[(currentPageIndex + 1) % pages.length]; setActivePage(next.id); resetInteractionState(); }} onZoomIn={() => setZoom((current) => clamp(current + ZOOM_STEP, MIN_ZOOM, MAX_ZOOM))} onZoomOut={() => setZoom((current) => clamp(current - ZOOM_STEP, MIN_ZOOM, MAX_ZOOM))} onSelectColor={setSelectedColor} onSelectStrokeWidth={setSelectedStrokeWidth} onToggleGrid={toggleGrid} onToolChange={(tool) => { setActiveTool(tool); if (tool !== "select") { setSelectedShapeId(null); } }} onUndo={() => { resetInteractionState(); undo(); }} />
 
-        <ChatPanel/> {/* Chat Panel */}
+        <ChatPanel/>
 
         <div className="pointer-events-none absolute right-5 top-5 z-20 rounded-full border border-slate-200/80 bg-white/88 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm backdrop-blur">
           {currentPage?.name ?? "Page"} | {shapes.length} element{shapes.length === 1 ? "" : "s"}
         </div>
 
+        {/* --- UPDATED: Removed draggable from stage --- */}
         {stageSize.width > 0 && stageSize.height > 0 ? (
-          <Stage ref={stageRef} width={stageSize.width} height={stageSize.height} onMouseDown={handlePointerDown} onMouseMove={handlePointerMove} onMouseUp={finishDrawing} onMouseLeave={finishDrawing} onTouchStart={handlePointerDown} onTouchMove={handlePointerMove} onTouchEnd={finishDrawing}>
+          <Stage 
+            ref={stageRef} 
+            width={stageSize.width} 
+            height={stageSize.height} 
+            onMouseDown={handlePointerDown} 
+            onMouseMove={handlePointerMove} 
+            onMouseUp={finishDrawing} 
+            onMouseLeave={finishDrawing} 
+            onTouchStart={handlePointerDown} 
+            onTouchMove={handlePointerMove} 
+            onTouchEnd={finishDrawing}
+          >
             <Layer>
               <Group x={slidePosition.x} y={slidePosition.y} scaleX={zoom} scaleY={zoom}>
                 {showMargins && (

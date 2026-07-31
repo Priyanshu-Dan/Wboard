@@ -15,7 +15,8 @@ export type Tool =
   | "pencil"
   | "text"
   | "eraser"
-  | "area-eraser";
+  | "area-eraser"
+  |  "hand";
 
 export type StrokeWidth = number;
 
