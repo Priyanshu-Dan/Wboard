@@ -9,6 +9,7 @@ import type {
   PageType,
   Tool,
   WhiteboardShape,
+  Participant, // <-- Added Participant import
 } from "@/types/whiteboard";
 
 type User = {
@@ -43,6 +44,12 @@ type WhiteboardState = WhiteboardSnapshot & {
   
   roomId: string | null;
   currentUser: User | null;
+
+  // --- NEW: WebRTC Participant Roster State ---
+  participants: Participant[];
+  setParticipants: (participants: Participant[]) => void;
+  // --------------------------------------------
+
   setRoomId: (id: string | null) => void;
   setCurrentUser: (name: string, id: string) => void;
   
@@ -145,6 +152,11 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
   roomId: null,
   currentUser: null,
   
+  // --- NEW: Initializing Participant Roster ---
+  participants: [],
+  setParticipants: (participants) => set({ participants }),
+  // --------------------------------------------
+
   pages: [initialPage],
   activePageId: initialPage.id,
   activeTool: "select",

@@ -12,7 +12,6 @@ const allowedOrigins = [
 
 app.use(cors({ origin: allowedOrigins }));
 
-// Health check for Render cold-starts
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'awake', timestamp: Date.now() });
 });
@@ -27,34 +26,20 @@ const ROOM_TIMEOUT_MS = 5 * 60 * 1000;
 const roomStateCache = new Map();
 const sessionCache = new Map(); 
 
-// Tracks ownership, capacity, VIPs, and waiting list
 const roomMetadata = new Map();
 const MAX_CAPACITY = 6;
+
+// --- NEW: Broadcasts the updated participant list to everyone in the room ---
+const broadcastRoster = (roomId) => {
+  const roomData = roomMetadata.get(roomId);
+  if (roomData) {
+    io.to(roomId).emit('room:roster', Array.from(roomData.participants.values()));
+  }
+};
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
-  // Helper: Handles joining room and syncing state
-  // const joinUserToRoom = (targetSocket, roomId, userName, targetUuid) => {
-  //   targetSocket.join(roomId);
-  //   console.log(`[AUTHORIZED] ${userName} joined room: ${roomId}`);
-
-  //   // Abort room self-destruct if active
-  //   if (roomDestructTimers.has(roomId)) {
-  //     clearTimeout(roomDestructTimers.get(roomId));
-  //     roomDestructTimers.delete(roomId);
-  //     console.log(`Room ${roomId} self-destruct aborted.`);
-  //   }
-
-  //   // Catch-up protocol
-  //   const clients = io.sockets.adapter.rooms.get(roomId);
-  //   if (clients && clients.size > 1) {
-  //     const existingClient = Array.from(clients).find(id => id !== targetSocket.id);
-  //     io.to(existingClient).emit('request-sync', { targetSocketId: targetSocket.id });
-  //   } else if (roomStateCache.has(roomId)) {
-  //     targetSocket.emit('room-state', roomStateCache.get(roomId));
-  //   }
-  // };
   const joinUserToRoom = (targetSocket, roomId, userName, targetUuid) => {
     targetSocket.join(roomId);
     console.log(`[AUTHORIZED] ${userName} joined room: ${roomId}`);
@@ -69,14 +54,18 @@ io.on('connection', (socket) => {
   socket.on('request-join', ({ roomId, userName, uuid }) => {
     if (uuid) sessionCache.set(uuid, { userName, roomId, socketId: socket.id });
 
-    // Scenario A: Room doesn't exist at all, user becomes Host
+    // Scenario A: Room doesn't exist
     if (!roomMetadata.has(roomId)) {
       roomMetadata.set(roomId, {
         hostUuid: uuid,
         hostSocketId: socket.id,
-        allowedUsers: new Set([uuid]), // VIP list for reconnections
-        activeUsers: new Set([uuid]),  // Currently online
-        pendingUsers: new Map() 
+        allowedUsers: new Set([uuid]), 
+        activeUsers: new Set([uuid]),  
+        pendingUsers: new Map(),
+        // NEW: The official roster Map
+        participants: new Map([
+          [uuid, { uuid, socketId: socket.id, name: userName, isHost: true, isMuted: true, handRaised: false }]
+        ])
       });
       
       joinUserToRoom(socket, roomId, userName, uuid);
@@ -86,27 +75,29 @@ io.on('connection', (socket) => {
 
     const roomData = roomMetadata.get(roomId);
 
-    // Scenario A2: The Abandoned Room Claim
-    // The room exists in memory, but everyone left. First one back takes the crown.
+    // Scenario A2: Abandoned Room Claim
     if (roomData.activeUsers.size === 0) {
-      console.log(`Abandoned room ${roomId} claimed by new Host: ${userName}`);
       roomData.hostUuid = uuid;
       roomData.hostSocketId = socket.id;
       roomData.allowedUsers.add(uuid); 
       roomData.activeUsers.add(uuid);  
+      roomData.participants.set(uuid, { uuid, socketId: socket.id, name: userName, isHost: true, isMuted: true, handRaised: false });
       
       joinUserToRoom(socket, roomId, userName, uuid);
       socket.emit('join-status', { status: 'admitted', isHost: true });
       return;
     }
 
-    // Scenario B: Returning VIP user (handles React Strict Mode & refreshes)
+    // Scenario B: Returning VIP user
     if (roomData.allowedUsers.has(uuid)) {
       roomData.activeUsers.add(uuid);
-      if (roomData.hostUuid === uuid) roomData.hostSocketId = socket.id;
+      const isHost = roomData.hostUuid === uuid;
+      if (isHost) roomData.hostSocketId = socket.id;
+      
+      roomData.participants.set(uuid, { uuid, socketId: socket.id, name: userName, isHost, isMuted: true, handRaised: false });
       
       joinUserToRoom(socket, roomId, userName, uuid);
-      socket.emit('join-status', { status: 'admitted', isHost: roomData.hostUuid === uuid });
+      socket.emit('join-status', { status: 'admitted', isHost });
       return;
     }
 
@@ -116,13 +107,12 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Scenario D: New user sent to waiting room
+    // Scenario D: Waitlist
     roomData.pendingUsers.set(uuid, { userName, socketId: socket.id });
     socket.emit('join-status', { status: 'waiting' });
     io.to(roomData.hostSocketId).emit('knock-knock', { userName, uuid });
   });
 
-  // Host resolves the knock (Admit or Deny)
   socket.on('resolve-knock', ({ roomId, targetUuid, decision }) => {
     const roomData = roomMetadata.get(roomId);
     if (!roomData || roomData.hostSocketId !== socket.id) return;
@@ -135,8 +125,10 @@ io.on('connection', (socket) => {
     if (decision === 'admit') {
       if (roomData.activeUsers.size >= MAX_CAPACITY) return; 
       
-      roomData.allowedUsers.add(targetUuid); // Add to permanent VIP list
+      roomData.allowedUsers.add(targetUuid); 
       roomData.activeUsers.add(targetUuid);
+      // Add to roster
+      roomData.participants.set(targetUuid, { uuid: targetUuid, socketId: pendingUser.socketId, name: pendingUser.userName, isHost: false, isMuted: true, handRaised: false });
       
       const targetSocket = io.sockets.sockets.get(pendingUser.socketId);
       if (targetSocket) {
@@ -147,7 +139,7 @@ io.on('connection', (socket) => {
       io.to(pendingUser.socketId).emit('join-status', { status: 'denied', reason: 'Host denied entry' });
     }
   });
-  //New
+
   socket.on('client-ready', ({ roomId }) => {
     console.log(`Canvas mounted for ${socket.id}. Triggering sync...`);
     
@@ -158,12 +150,23 @@ io.on('connection', (socket) => {
     } else if (roomStateCache.has(roomId)) {
       socket.emit('room-state', roomStateCache.get(roomId));
     }
+    
+    // --- NEW: Send the official Roster to the room now that the user is loaded in ---
+    broadcastRoster(roomId);
   });
 
-  // Canvas State Sync (this is the comment you searched for)
-  //New
-  // Canvas State Sync
-// Canvas State Sync
+  // --- NEW: Handle WebRTC UI Toggles ---
+  socket.on('participant:update', ({ roomId, uuid, updates }) => {
+    const roomData = roomMetadata.get(roomId);
+    if (!roomData) return;
+    
+    const participant = roomData.participants.get(uuid);
+    if (participant) {
+      Object.assign(participant, updates); 
+      broadcastRoster(roomId);
+    }
+  });
+
   socket.on('update-cache', ({ roomId, pages, activePageId }) => {
     roomStateCache.set(roomId, { pages, activePageId });
   });
@@ -177,7 +180,6 @@ io.on('connection', (socket) => {
     rooms.forEach(room => socket.to(room).emit(event, data));
   };
 
-  // Broadcasts
   socket.on('chat:message', (data) => broadcastToRoom('chat:message', data));
   socket.on('shape:add', (data) => broadcastToRoom('shape:add', data));
   socket.on('shape:update', (data) => broadcastToRoom('shape:update', data));
@@ -188,7 +190,6 @@ io.on('connection', (socket) => {
   socket.on('page:rename', (data) => broadcastToRoom('page:rename', data));
   socket.on('cursor:update', (data) => broadcastToRoom('cursor:update', { ...data, id: socket.id }));
 
-  // Cleanup & Garbage Collection
   socket.on('disconnecting', () => {
     const rooms = Array.from(socket.rooms).filter(r => r !== socket.id);
     
@@ -202,7 +203,8 @@ io.on('connection', (socket) => {
       
       const roomData = roomMetadata.get(roomId);
       if (roomData && leavingUuid) {
-        roomData.activeUsers.delete(leavingUuid); // Remove from active, but keep in allowedUsers
+        roomData.activeUsers.delete(leavingUuid);
+        roomData.participants.delete(leavingUuid); // Remove from roster
         
         // Host Succession
         if (roomData.hostUuid === leavingUuid && roomData.activeUsers.size > 0) {
@@ -212,10 +214,16 @@ io.on('connection', (socket) => {
           
           if (nextHostSession) {
             roomData.hostSocketId = nextHostSession.socketId;
+            const nextHostParticipant = roomData.participants.get(nextHostUuid);
+            if (nextHostParticipant) nextHostParticipant.isHost = true;
+            
             io.to(roomData.hostSocketId).emit('host-promoted');
             console.log(`Host left. ${nextHostSession.userName} promoted to Host.`);
           }
         }
+        
+        // --- NEW: Broadcast the updated roster since someone left ---
+        broadcastRoster(roomId);
       }
       
       const room = io.sockets.adapter.rooms.get(roomId);

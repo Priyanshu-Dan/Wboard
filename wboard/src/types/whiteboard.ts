@@ -51,3 +51,12 @@ export type WhiteboardShape = {
   points?: number[];
   text?: string;
 };
+
+export type Participant = {
+  uuid: string;
+  socketId: string;
+  name: string;
+  isHost: boolean;
+  isMuted: boolean;
+  handRaised: boolean;
+};

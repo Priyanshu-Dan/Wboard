@@ -1,5 +1,7 @@
 "use client";
 
+import { ParticipantPanel } from "@/components/participant-panel";
+import { ActionBar } from "@/components/action-bar";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { KonvaEventObject } from "konva/lib/Node";
 import type { Node as KonvaNode } from "konva/lib/Node";
@@ -169,6 +171,14 @@ export default function Whiteboard() {
       if(data?.ids) removeShapes(data.ids, { trackHistory: false, pageId: data.pageId });
     });
 
+
+    // --- WebRTC Participant Roster Listener ---
+    socket.on("room:roster", (roster: any[]) => {
+      console.log("Received updated room roster:", roster);
+      useWhiteboardStore.getState().setParticipants(roster);
+    });
+
+
     socket.on("cursor:update", (data: { id: string; name: string; x: number; y: number; pageId: string }) => {
       const colorIndex = Array.from(data.id).reduce((sum, char) => sum + char.charCodeAt(0), 0) % CURSOR_COLORS.length;
       setCursors((prev) => ({
@@ -190,6 +200,12 @@ export default function Whiteboard() {
     socket.on("page:add", (page: Page) => addPage(page));
     socket.on("page:delete", (id: string) => deletePage(id));
     socket.on("page:rename", (data: { id: string; name: string }) => renamePage(data.id, data.name));
+
+    //Roster Listener
+    socket.on("room:roster",(roster: any[])=>{
+      console.log("Received updated room roster:",roster);
+      useWhiteboardStore.getState().setParticipants(roster);
+    });
 
     socket.on("room-state", (payload: any) => {
       if (payload && payload.pages) {
@@ -236,6 +252,7 @@ export default function Whiteboard() {
       socket.off("page:rename");
       socket.off("room-state");
       socket.off("request-sync");
+      socket.off("room:roster");
     };
   }, [socket, roomId, addShape, updateShape, removeShape, removeShapes, addPage, deletePage, renamePage, currentUser]);
 
@@ -679,6 +696,9 @@ export default function Whiteboard() {
         <FloatingToolbar activeTool={activeTool} selectedColor={selectedColor} selectedStrokeWidth={selectedStrokeWidth} colorPalette={colorPalette} strokeWidthOptions={strokeWidthOptions} canUndo={pastCount > 0} canRedo={futureCount > 0} currentZoom={zoom} onRedo={() => { resetInteractionState(); redo(); }} onPreviousSlide={() => { const next = pages[(currentPageIndex - 1 + pages.length) % pages.length]; setActivePage(next.id); resetInteractionState(); }} onNextSlide={() => { const next = pages[(currentPageIndex + 1) % pages.length]; setActivePage(next.id); resetInteractionState(); }} onZoomIn={() => setZoom((current) => clamp(current + ZOOM_STEP, MIN_ZOOM, MAX_ZOOM))} onZoomOut={() => setZoom((current) => clamp(current - ZOOM_STEP, MIN_ZOOM, MAX_ZOOM))} onSelectColor={setSelectedColor} onSelectStrokeWidth={setSelectedStrokeWidth} onToggleGrid={toggleGrid} onToolChange={(tool) => { setActiveTool(tool); if (tool !== "select") { setSelectedShapeId(null); } }} onUndo={() => { resetInteractionState(); undo(); }} />
 
         <ChatPanel/>
+      
+        <ActionBar/>
+        <ParticipantPanel/>
 
         <div className="pointer-events-none absolute right-5 top-5 z-20 rounded-full border border-slate-200/80 bg-white/88 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm backdrop-blur">
           {currentPage?.name ?? "Page"} | {shapes.length} element{shapes.length === 1 ? "" : "s"}
