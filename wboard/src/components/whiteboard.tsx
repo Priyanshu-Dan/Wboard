@@ -199,6 +199,12 @@ export default function Whiteboard() {
       useWhiteboardStore.getState().setParticipants(roster);
     });
 
+    // Ejection Listener
+    socket.on("room:kicked", () => {
+      // If you are using sonner for toasts, you can alert them here
+      alert("You have been removed from the room by the host.");
+      window.location.href = "/"; // Force redirect to landing page
+    });
 
     socket.on("cursor:update", (data: { id: string; name: string; x: number; y: number; pageId: string }) => {
       const colorIndex = Array.from(data.id).reduce((sum, char) => sum + char.charCodeAt(0), 0) % CURSOR_COLORS.length;

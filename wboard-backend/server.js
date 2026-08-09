@@ -50,7 +50,44 @@ io.on('connection', (socket) => {
       console.log(`Room ${roomId} self-destruct aborted.`);
     }
   };
+  // --- Admin Feature: Kick User ---
+  socket.on('room:kick', ({ roomId, targetUuid }) => {
+    const roomData = roomMetadata.get(roomId);
+    if (!roomData) return;
 
+    // SECURITY CHECK: Ensure the person requesting the kick is the actual host
+    if (roomData.hostSocketId !== socket.id) {
+      console.warn(`Unauthorized kick attempt by ${socket.id}`);
+      return;
+    }
+
+    const targetParticipant = roomData.participants.get(targetUuid);
+    if (!targetParticipant) return;
+
+    const targetSocketId = targetParticipant.socketId;
+
+    // 1. Notify the target user so their frontend can redirect them to the home page
+    io.to(targetSocketId).emit('room:kicked');
+
+    // 2. Remove them from the server's room state
+    roomData.activeUsers.delete(targetUuid);
+    roomData.allowedUsers.delete(targetUuid); // Forces them to knock again if they try to return
+    roomData.participants.delete(targetUuid);
+
+    // 3. Force the socket connection to drop the room channel
+    const targetSocket = io.sockets.sockets.get(targetSocketId);
+    if (targetSocket) {
+      targetSocket.leave(roomId);
+      // Remove their cursor for everyone else
+      socket.to(roomId).emit('cursor:remove', targetSocketId);
+    }
+
+    // 4. Update the roster for the remaining users
+    broadcastRoster(roomId);
+    console.log(`Host kicked user ${targetUuid} from room ${roomId}`);
+  });
+
+  
   socket.on('request-join', ({ roomId, userName, uuid }) => {
     if (uuid) sessionCache.set(uuid, { userName, roomId, socketId: socket.id });
 

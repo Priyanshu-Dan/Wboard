@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, Hand, Crown, Users } from "lucide-react";
 import { useWhiteboardStore } from "@/store/use-whiteboard-store";
+import { useSocket } from "@/components/socket-provider";
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -22,6 +23,13 @@ export function ParticipantPanel() {
 
   const participants = useWhiteboardStore((state) => state.participants);
   const currentUser = useWhiteboardStore((state) => state.currentUser);
+  
+  // 1. Initialize Socket and Room ID
+  const socket = useSocket();
+  const roomId = typeof window !== "undefined" ? window.location.pathname.split('/').pop() : null;
+
+  // 2. Check if the current client is the host
+  const amIHost = participants.find((p) => p.uuid === currentUser?.id)?.isHost;
 
   useEffect(() => {
     const handleMove = (event: PointerEvent) => {
@@ -60,6 +68,13 @@ export function ParticipantPanel() {
     };
   };
 
+  // 3. Kick Handler
+  const handleKick = (targetUuid: string) => {
+    if (!socket || !roomId) return;
+    // Emit the kick event to the backend
+    socket.emit("room:kick", { roomId, targetUuid });
+  };
+
   return (
     <aside
       ref={panelRef}
@@ -88,7 +103,8 @@ export function ParticipantPanel() {
           <div className="py-4 text-center text-xs text-slate-400">Connecting to room...</div>
         ) : (
           participants.map((p) => {
-            const isMe = p.name === currentUser?.name;
+            const isMe = p.uuid === currentUser?.id;
+            
             return (
               <div
                 key={p.uuid}
@@ -103,7 +119,19 @@ export function ParticipantPanel() {
                   </span>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* 4. The Kick Button (Only visible to the host, and not on their own name) */}
+                  {amIHost && !isMe && (
+                    <button
+                      onClick={() => handleKick(p.uuid)}
+                      className="rounded-md bg-red-100 px-2 py-1 text-[10px] font-bold text-red-600 transition hover:bg-red-200 hover:text-red-700 active:bg-red-300"
+                      title={`Kick ${p.name}`}
+                    >
+                      KICK
+                    </button>
+                  )}
+
+                  {/* Status Icons */}
                   {p.isHost && <Crown className="h-4 w-4 text-amber-500" title="Room Host" />}
                   {p.handRaised && <Hand className="h-4 w-4 text-yellow-500 animate-bounce" title="Hand Raised" />}
                   {p.isMuted ? (
