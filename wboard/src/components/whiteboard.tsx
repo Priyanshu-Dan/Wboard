@@ -1,5 +1,8 @@
 "use client";
 
+import {Toaster} from "sonner";
+import {useToastNotifications} from "@/hooks/use-toast-notifications";
+import {useWebRTC} from "@/hooks/use-webrtc";
 import { ParticipantPanel } from "@/components/participant-panel";
 import { ActionBar } from "@/components/action-bar";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
@@ -77,6 +80,21 @@ function getMarginGuideColor(appTheme: string, collegeMode: boolean): string {
   return "rgba(203, 213, 225, 0.4)";
 }
 
+// Helper component to safely attach hardware streams to audio tags
+function AudioPlayer({ stream }: { stream: MediaStream }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    if (audioRef.current && stream) {
+      audioRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  return <audio ref={audioRef} autoPlay playsInline />;
+}
+
+
+
 export default function Whiteboard() {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<KonvaStage | null>(null);
@@ -86,6 +104,9 @@ export default function Whiteboard() {
   
   const socket = useSocket();
   const roomId = typeof window !== "undefined" ? window.location.pathname.split('/').pop() : null; 
+  const {remoteStreams ,toggleHardwareMic} = useWebRTC(socket, roomId);
+
+  useToastNotifications(); // Initialize toast notifications for participant events  
   
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
@@ -697,8 +718,15 @@ export default function Whiteboard() {
 
         <ChatPanel/>
       
-        <ActionBar/>
+        <ActionBar toggleHardwareMic={toggleHardwareMic}/>
         <ParticipantPanel/>
+
+        <Toaster position="top-left" richColors theme="light"/>
+        <div className="hidden">
+          {Object.entries(remoteStreams).map(([uuid, stream]) => (
+            <AudioPlayer key={uuid} stream={stream} />
+          ))}
+        </div>
 
         <div className="pointer-events-none absolute right-5 top-5 z-20 rounded-full border border-slate-200/80 bg-white/88 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm backdrop-blur">
           {currentPage?.name ?? "Page"} | {shapes.length} element{shapes.length === 1 ? "" : "s"}

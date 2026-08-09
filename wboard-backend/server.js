@@ -62,7 +62,7 @@ io.on('connection', (socket) => {
         allowedUsers: new Set([uuid]), 
         activeUsers: new Set([uuid]),  
         pendingUsers: new Map(),
-        // NEW: The official roster Map
+        //  The official roster Map
         participants: new Map([
           [uuid, { uuid, socketId: socket.id, name: userName, isHost: true, isMuted: true, handRaised: false }]
         ])
@@ -151,11 +151,11 @@ io.on('connection', (socket) => {
       socket.emit('room-state', roomStateCache.get(roomId));
     }
     
-    // --- NEW: Send the official Roster to the room now that the user is loaded in ---
+    // ---Send the official Roster to the room now that the user is loaded in ---
     broadcastRoster(roomId);
   });
 
-  // --- NEW: Handle WebRTC UI Toggles ---
+  // ---Handling WebRTC UI Toggles ---
   socket.on('participant:update', ({ roomId, uuid, updates }) => {
     const roomData = roomMetadata.get(roomId);
     if (!roomData) return;
@@ -166,6 +166,36 @@ io.on('connection', (socket) => {
       broadcastRoster(roomId);
     }
   });
+
+  // --- NEW: WebRTC Matchmaking Signaling ---
+  
+  // 1. User A sends an offer to connect to User B
+  socket.on('webrtc:offer', ({ targetSocketId, callerSocketId, callerUuid, sdp }) => {
+    io.to(targetSocketId).emit('webrtc:offer', { 
+      callerSocketId, 
+      callerUuid, 
+      sdp 
+    });
+  });
+
+  // 2. User B accepts the offer and sends an answer back to User A
+  socket.on('webrtc:answer', ({ targetSocketId, responderSocketId, responderUuid, sdp }) => {
+    io.to(targetSocketId).emit('webrtc:answer', { 
+      responderSocketId, 
+      responderUuid, 
+      sdp 
+    });
+  });
+
+  // 3. Both users exchange optimal routing paths (ICE Candidates)
+  socket.on('webrtc:ice-candidate', ({ targetSocketId, senderSocketId, senderUuid, candidate }) => {
+    io.to(targetSocketId).emit('webrtc:ice-candidate', { 
+      senderSocketId, 
+      senderUuid, 
+      candidate 
+    });
+  });
+
 
   socket.on('update-cache', ({ roomId, pages, activePageId }) => {
     roomStateCache.set(roomId, { pages, activePageId });
@@ -222,7 +252,7 @@ io.on('connection', (socket) => {
           }
         }
         
-        // --- NEW: Broadcast the updated roster since someone left ---
+        // --- Broadcast the updated roster since someone left ---
         broadcastRoster(roomId);
       }
       
@@ -245,4 +275,19 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 4000;
+// --- API Route: Check if a room exists and is joinable ---
+app.get('/api/rooms/:roomId', (req, res) => {
+  const roomId = req.params.roomId.toUpperCase();
+  const roomData = roomMetadata.get(roomId);
+
+  if (!roomData) {
+    return res.status(404).json({ exists: false, message: "Room does not exist" });
+  }
+
+  if (roomData.activeUsers.size >= MAX_CAPACITY) {
+    return res.status(400).json({ exists: true, full: true, message: "Room is full (Max 6 users)" });
+  }
+
+  return res.json({ exists: true, full: false });
+});
 server.listen(PORT, () => console.log(`WBoard signaling server running on port ${PORT}`));

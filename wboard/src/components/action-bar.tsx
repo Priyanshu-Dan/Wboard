@@ -1,27 +1,38 @@
 "use client";
 
-import React, { useState } from "react";
-import { Mic, MicOff, Hand, MessageSquare, LogOut } from "lucide-react";
+import React from "react";
+import { Mic, MicOff, Hand, LogOut } from "lucide-react";
 import { useSocket } from "@/components/socket-provider";
 import { useWhiteboardStore } from "@/store/use-whiteboard-store";
 
-export function ActionBar() {
+// --- NEW: Add the prop interface ---
+interface ActionBarProps {
+  toggleHardwareMic: (isMuted: boolean) => void;
+}
+
+export function ActionBar({ toggleHardwareMic }: ActionBarProps) {
   const socket = useSocket();
   const roomId = useWhiteboardStore((state) => state.roomId);
   const currentUser = useWhiteboardStore((state) => state.currentUser);
   const participants = useWhiteboardStore((state) => state.participants);
 
-  // Find our own participant state from the roster
   const myParticipant = participants.find((p) => p.name === currentUser?.name);
   const isMuted = myParticipant ? myParticipant.isMuted : true;
   const handRaised = myParticipant ? myParticipant.handRaised : false;
 
   const toggleMic = () => {
     if (!socket || !roomId || !currentUser) return;
+    
+    const nextMuteState = !isMuted;
+    
+    // 1. Physically mute/unmute the hardware microphone
+    toggleHardwareMic(nextMuteState);
+    
+    // 2. Tell the server to update the UI for everyone else
     socket.emit("participant:update", {
       roomId,
       uuid: currentUser.id,
-      updates: { isMuted: !isMuted },
+      updates: { isMuted: nextMuteState },
     });
   };
 
@@ -35,12 +46,11 @@ export function ActionBar() {
   };
 
   const handleLeave = () => {
-    window.location.href = "/"; // Return to home/room entry screen
+    window.location.href = "/";
   };
 
   return (
     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/90 px-4 py-2.5 shadow-[0_16px_40px_rgba(15,23,42,0.16)] backdrop-blur">
-      {/* Mic Button */}
       <button
         type="button"
         onClick={toggleMic}
@@ -55,7 +65,6 @@ export function ActionBar() {
         {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
       </button>
 
-      {/* Raise Hand Button */}
       <button
         type="button"
         onClick={toggleHand}
@@ -72,7 +81,6 @@ export function ActionBar() {
 
       <div className="h-6 w-[1px] bg-slate-200 mx-1" />
 
-      {/* Leave Room Button */}
       <button
         type="button"
         onClick={handleLeave}
