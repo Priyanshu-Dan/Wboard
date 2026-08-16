@@ -7,7 +7,8 @@ const app = express();
 
 const allowedOrigins = [
   "http://localhost:3000", 
-  "https://your-wboard-app.vercel.app" 
+  process.env.FRONTEND_URL,
+  "https://wboard-delta.vercel.app" 
 ];
 
 app.use(cors({ origin: allowedOrigins }));
@@ -204,7 +205,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // --- NEW: WebRTC Matchmaking Signaling ---
+  // --- WebRTC Matchmaking Signaling ---
   
   // 1. User A sends an offer to connect to User B
   socket.on('webrtc:offer', ({ targetSocketId, callerSocketId, callerUuid, sdp }) => {
