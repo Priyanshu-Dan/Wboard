@@ -36,10 +36,10 @@ type FloatingToolbarProps = {
   canUndo: boolean;
   canRedo: boolean;
   currentZoom: number;
-  appTheme: AppTheme;
-  themeOptions: AppTheme[];
-  showMargins: boolean;
-  collegeMarginMode: boolean;
+  appTheme?: AppTheme;
+  themeOptions?: AppTheme[];
+  showMargins?: boolean;
+  collegeMarginMode?: boolean;
   onRedo: () => void;
   onPreviousSlide: () => void;
   onNextSlide: () => void;
@@ -48,9 +48,9 @@ type FloatingToolbarProps = {
   onSelectColor: (color: string) => void;
   onSelectStrokeWidth: (width: StrokeWidth) => void;
   onToggleGrid: () => void;
-  onSetAppTheme: (theme: AppTheme) => void;
-  onToggleMargins: () => void;
-  onToggleCollegeMarginMode: () => void;
+  onSetAppTheme?: (theme: AppTheme) => void;
+  onToggleMargins?: () => void;
+  onToggleCollegeMarginMode?: () => void;
   onToolChange: (tool: Tool) => void;
   onUndo: () => void;
 };

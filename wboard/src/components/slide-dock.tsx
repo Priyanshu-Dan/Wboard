@@ -50,8 +50,8 @@ export function SlideDock({
   const activePage = pages.find((page) => page.id === activePageId);
 
   return (
-    <div className="absolute inset-x-0 top-4 z-20 flex justify-center px-4">
-      <div className="flex max-w-[min(100%,960px)] items-center gap-2 overflow-x-auto rounded-full border border-slate-200/80 bg-white/92 px-3 py-2 shadow-[0_16px_40px_rgba(15,23,42,0.10)] backdrop-blur">
+    <div className="absolute inset-x-0 top-4 z-20 flex justify-center px-4 pointer-events-none">
+      <div className="pointer-events-auto flex max-w-[min(100%,960px)] items-center gap-2 overflow-x-auto rounded-full border border-slate-200/80 bg-white/92 px-3 py-2 shadow-[0_16px_40px_rgba(15,23,42,0.10)] backdrop-blur">
         {pages.map((page, index) => {
           const isActive = page.id === activePageId;
 

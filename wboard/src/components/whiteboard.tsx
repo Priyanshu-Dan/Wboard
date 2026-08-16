@@ -160,7 +160,13 @@ export default function Whiteboard() {
   const redo = useWhiteboardStore((state) => state.redo);
 
   const currentPage = pages.find((page) => page.id === activePageId) ?? pages[0] ?? null;
-  const shapes = useMemo(() => currentPage?.content.shapes ?? [], [currentPage?.content.shapes]);
+  // const shapes = useMemo(() => currentPage?.content.shapes ?? [], [currentPage?.content.shapes]);
+  const shapes = useMemo(() => {
+    if (currentPage?.content && 'shapes' in currentPage.content) {
+      return currentPage.content.shapes;
+    }
+    return [];
+  }, [currentPage?.content]);
   const activeSelectedShapeId = shapes.some((shape) => shape.id === selectedShapeId) ? selectedShapeId : null;
   const currentPageIndex = pages.findIndex((page) => page.id === activePageId);
 
@@ -291,9 +297,16 @@ export default function Whiteboard() {
       return;
     }
 
-    const hasDrawings = pages.some(page => 
-      page.pageType === "whiteboard" && page.content.shapes.length > 0
-    );
+    // const hasDrawings = pages.some(page => 
+    //   page.pageType === "whiteboard" && page.content.shapes.length > 0
+    // );
+
+    const hasDrawings = pages.some(page => {
+      if (page.pageType === "whiteboard" && 'shapes' in page.content) {
+        return page.content.shapes.length > 0;
+      }
+      return false;
+    });
 
     if (socket && roomId && hasDrawings) {
       socket.emit('update-cache', { roomId, pages, activePageId });
@@ -440,7 +453,7 @@ export default function Whiteboard() {
     const stagePoint = getPointerPosition(event);
     if (!stagePoint) return;
     const slidePoint = toSlidePoint(stagePoint);
-    if (!isPointInSlide(slidePoint)) return;
+    // if (!isPointInSlide(slidePoint)) return;
     startShape(slidePoint);
   }
 
@@ -604,7 +617,9 @@ export default function Whiteboard() {
     resetInteractionState();
 
     if (pages.length > 0 && pages[0].id === pageId) {
-      const shapeIdsToClear = pages[0].content.shapes.map((shape) => shape.id);
+      const shapeIdsToClear = 'shapes' in pages[0].content 
+          ? pages[0].content.shapes.map((shape) => shape.id)
+          : [];
       
       if (shapeIdsToClear.length > 0) {
         removeShapes(shapeIdsToClear);
@@ -786,6 +801,7 @@ export default function Whiteboard() {
                 {activeSelectedShapeId && activeTool === "select" ? <Transformer ref={transformerRef} boundBoxFunc={(oldBox, newBox) => { if (newBox.width < 24 || newBox.height < 24) return oldBox; return newBox; }} onTransformEnd={() => { const shape = shapes.find((item) => item.id === activeSelectedShapeId); if (shape) handleTransformEnd(shape)(); }} /> : null}
               </Group>
             </Layer>
+            
           </Stage>
         ) : null}
 

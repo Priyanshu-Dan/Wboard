@@ -9,7 +9,7 @@ import type {
   PageType,
   Tool,
   WhiteboardShape,
-  Participant, // <-- Added Participant import
+  Participant,
 } from "@/types/whiteboard";
 
 type User = {
@@ -110,8 +110,8 @@ function cloneShape(shape: WhiteboardShape): WhiteboardShape {
 function clonePages(pages: Page[]): Page[] {
   return pages.map((page) => ({
     ...page,
-    content: page.pageType === "whiteboard"
-        ? { shapes: [...page.content.shapes].map(cloneShape) }
+    content: page.pageType === "whiteboard" && "shapes" in page.content
+        ? { shapes: page.content.shapes.map(cloneShape) }
         : { placeholder: (page.content as { placeholder: string }).placeholder },
   }));
 }
@@ -254,12 +254,12 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
         : incomingPages[0]?.id
     })),
 
-  addShape: (shape, options) =>
+addShape: (shape, options) =>
     set((state) =>
       updateSnapshot(state, (snapshot) => {
           const targetPageId = options?.pageId || snapshot.activePageId;
           snapshot.pages = snapshot.pages.map((page) =>
-            page.id === targetPageId && page.pageType === "whiteboard"
+            page.id === targetPageId && page.pageType === "whiteboard" && "shapes" in page.content
               ? {
                   ...page,
                   content: { shapes: [...page.content.shapes, cloneShape(shape)] },
@@ -276,7 +276,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
       updateSnapshot(state, (snapshot) => {
           const targetPageId = options?.pageId || snapshot.activePageId;
           snapshot.pages = snapshot.pages.map((page) =>
-            page.id === targetPageId && page.pageType === "whiteboard"
+            page.id === targetPageId && page.pageType === "whiteboard" && "shapes" in page.content
               ? {
                   ...page,
                   content: {
@@ -303,7 +303,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
       updateSnapshot(state, (snapshot) => {
           const targetPageId = options?.pageId || snapshot.activePageId;
           snapshot.pages = snapshot.pages.map((page) =>
-            page.id === targetPageId && page.pageType === "whiteboard"
+            page.id === targetPageId && page.pageType === "whiteboard" && "shapes" in page.content
               ? {
                   ...page,
                   content: {
@@ -322,7 +322,7 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
       updateSnapshot(state, (snapshot) => {
           const targetPageId = options?.pageId || snapshot.activePageId;
           snapshot.pages = snapshot.pages.map((page) =>
-            page.id === targetPageId && page.pageType === "whiteboard"
+            page.id === targetPageId && page.pageType === "whiteboard" && "shapes" in page.content
               ? {
                   ...page,
                   content: {
@@ -366,3 +366,4 @@ export const useWhiteboardStore = create<WhiteboardState>((set) => ({
       };
     }),
 }));
+

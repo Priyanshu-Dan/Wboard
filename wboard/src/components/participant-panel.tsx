@@ -132,12 +132,24 @@ export function ParticipantPanel() {
                   )}
 
                   {/* Status Icons */}
-                  {p.isHost && <Crown className="h-4 w-4 text-amber-500" title="Room Host" />}
-                  {p.handRaised && <Hand className="h-4 w-4 text-yellow-500 animate-bounce" title="Hand Raised" />}
+                  {p.isHost && (
+                    <span title="Room Host">
+                      <Crown className="h-4 w-4 text-amber-500" />
+                    </span>
+                  )}
+                  {p.handRaised && (
+                    <span title="Hand Raised">
+                      <Hand className="h-4 w-4 text-yellow-500 animate-bounce" />
+                    </span>
+                  )}
                   {p.isMuted ? (
-                    <MicOff className="h-4 w-4 text-red-500" title="Muted" />
+                    <span title="Muted">
+                      <MicOff className="h-4 w-4 text-red-500" />
+                    </span>
                   ) : (
-                    <Mic className="h-4 w-4 text-emerald-600" title="Mic Open" />
+                    <span title="Mic Open">
+                      <Mic className="h-4 w-4 text-emerald-600" />
+                    </span>
                   )}
                 </div>
               </div>

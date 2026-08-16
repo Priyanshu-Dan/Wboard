@@ -50,7 +50,7 @@ export function ActionBar({ toggleHardwareMic }: ActionBarProps) {
   };
 
   return (
-    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/90 px-4 py-2.5 shadow-[0_16px_40px_rgba(15,23,42,0.16)] backdrop-blur">
+    <div className="pointer-events-auto absolute bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/90 px-4 py-2.5 shadow-[0_16px_40px_rgba(15,23,42,0.16)] backdrop-blur">
       <button
         type="button"
         onClick={toggleMic}
