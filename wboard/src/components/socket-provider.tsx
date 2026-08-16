@@ -4,7 +4,8 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import { useWhiteboardStore } from "@/store/use-whiteboard-store";
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
+const rawEnv = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
+const BACKEND_URL = rawEnv.replace(/['"]/g, '').trim();
 
 const SocketContext = createContext<Socket | null>(null);
 export const useSocket = () => useContext(SocketContext);
