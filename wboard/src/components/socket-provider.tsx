@@ -4,8 +4,9 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import { useWhiteboardStore } from "@/store/use-whiteboard-store";
 
-const rawEnv = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
-const BACKEND_URL = rawEnv.replace(/['"]/g, '').trim();
+// const rawEnv = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:4000";
+// const BACKEND_URL = rawEnv.replace(/['"]/g, '').trim();
+const BACKEND_URL = "https://wboard-backend.onrender.com";
 
 const SocketContext = createContext<Socket | null>(null);
 export const useSocket = () => useContext(SocketContext);
