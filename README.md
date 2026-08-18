@@ -1,5 +1,5 @@
 
-# 🎨 WBoard
+# 🙌 WBoard
 
 > **A real-time collaborative whiteboard for teams, discussions, and brainstorming.**
 
