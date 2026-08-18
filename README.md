@@ -219,8 +219,4 @@ The application separates responsibilities between the signaling server and clie
 
 The server acts as the **authority for room coordination and access control**, while WebRTC enables direct peer-to-peer audio communication.
 
----
 
-
-```
-```
